@@ -4,3 +4,4 @@ playwright==1.39.0
 beautifulsoup4==4.12.2
 lxml==4.9.3
 aiohttp==3.9.1
+gunicorn==21.2.0

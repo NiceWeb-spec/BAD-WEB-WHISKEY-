@@ -11,6 +11,7 @@ import os
 import logging
 import base64
 import re
+import traceback
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup, Comment
 from playwright.async_api import async_playwright
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-# ========== كود الاستنساخ الأصلي ==========
+# ========== كود الاستنساخ ==========
 class WebsiteCloner:
     def __init__(self):
         self.soup = None
@@ -65,6 +66,7 @@ class WebsiteCloner:
 
         except Exception as e:
             logger.error(f"Clone error: {e}")
+            logger.error(traceback.format_exc())
             return False, f"خطأ: {str(e)}", None
 
     async def _fetch_page_with_js(self, url):
@@ -98,7 +100,8 @@ class WebsiteCloner:
                 async with session.get(url, timeout=30, headers=headers) as response:
                     content = await response.read()
                     return content.decode('utf-8', errors='ignore')
-        except:
+        except Exception as e:
+            logger.error(f"Normal fetch error: {e}")
             return None
 
     async def _embed_all_resources(self, session):
@@ -232,31 +235,46 @@ def index():
 
 @app.route('/api/clone', methods=['POST'])
 def clone_website():
-    data = request.json
-    url = data.get('url')
-    
-    if not url:
-        return jsonify({'error': 'URL is required'}), 400
-    
+    """نقطة نهاية API لاستنساخ المواقع"""
     try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Invalid JSON'}), 400
+            
+        url = data.get('url')
+        if not url:
+            return jsonify({'error': 'URL is required'}), 400
+        
+        logger.info(f"Cloning request received: {url}")
+        
+        # تشغيل الاستنساخ
         cloner = WebsiteCloner()
         success, error, html_content = asyncio.run(cloner.clone_website(url))
         
         if not success:
             return jsonify({'error': error}), 500
         
+        # حفظ الملف مؤقتاً وإرساله
         with tempfile.NamedTemporaryFile(delete=False, suffix='.html', mode='w', encoding='utf-8') as f:
             f.write(html_content)
             f.flush()
-            return send_file(f.name, as_attachment=True, download_name='clone.html')
+            return send_file(
+                f.name, 
+                as_attachment=True, 
+                download_name='clone.html',
+                mimetype='text/html'
+            )
             
     except Exception as e:
+        logger.error(f"Error in clone endpoint: {e}")
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @app.route('/health')
 def health():
-    return jsonify({'status': 'ok'})
+    return jsonify({'status': 'ok', 'message': 'CloneBot is running'})
 
+# ========== تشغيل الخادم ==========
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=False, host='0.0.0.0', port=port)
